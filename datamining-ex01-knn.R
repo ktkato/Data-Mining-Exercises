@@ -188,7 +188,12 @@ scatter65 = ggplot(data = sclass65amg) +
 scatter65 + geom_path(data = Dtest_65AMG, mapping = aes(x = mileage, y = pred), color = 'red') +
   ggtitle("S Class 65 AMG with Fitted Line")
 
+optimal_k350
+optimal_rmse350
+optimal_k65
+optimal_rmse65
 
 # From repeated random samples, we find that the S Class 350 data generally yields a larger optimal value of K than the S Class 65 AMG, although occasionally we found the reverse to be true.
-# We believe the two subsets yield different optimal values of K largely due to the difference in sample size of each subset.  There are 332 observations in the S Class 350 training set and 233 in the S Class 65 AMG training set.  For example, if two datasets of roughly similar x-ranges and an identical trend, but different sample sizes, are making KNN-predictions with equal K, the smaller dataset will need to "reach further" from the x-value of interest than the larger one to acquire the K number of observations, taking into account a larger range of the x-values and thus, more of the change in that trend, distorting the expected value of the x-value.
+# We believe the two subsets yield different optimal values of K largely due to the difference in sample size of each subset.  There are 332 observations in the S Class 350 training set and 233 in the S Class 65 AMG training set.
+# For example, if two datasets of roughly similar x-ranges, identical trend, but different sample sizes are making KNN-predictions with equal K, the more sparse dataset will need to "reach further away" from the x-value of interest than the denser one to acquire the K number of observations, taking into account a larger range of the x-values and thus, more of the change in that trend, distorting the expected value of the x-value.
 # The smaller dataset, then, usually needs a smaller K because at a given x-value, the more local observations will be more reliable in predicting f(x).
