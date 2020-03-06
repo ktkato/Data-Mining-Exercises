@@ -1,0 +1,205 @@
+---
+title: "Viral Articles"
+output: github_document
+---
+
+# Intro
+
+Here we attempt to determine which articles will go viral and which will not, based on data from Mashable articles.  Then we compared the merits of regressing a numerical number-of-shares variable vs. regressing a binary viral-or-not variable.  Mashable determines the threshold beyond which an article is considered "viral" is 1400 shares.
+
+All predictions were made by training a randomly sampled 80% of the data to make predictions about the covariates, then testing our predictions on the remaining 20%, averaged over 100 different samples.
+
+```{r include=FALSE}
+library(foreach)
+library(tidyverse)
+require(scales)
+
+options(scipen = 999)
+online_news <- read.csv("~/University of Texas/Data Mining & Statistical Inference/Data/online_news.csv")
+
+# Define regressands, "logshares" and "viral"
+
+online_news$logshares = log(online_news$shares)
+online_news$viral = ifelse(online_news$shares > 1400, 1, 0)
+
+# Define train/test sizes
+
+n = nrow(online_news)
+ntrain = floor(n*0.8)
+ntest = n - ntrain
+```
+
+# Regress-Then-Threshold
+
+First, we ran a regression on "logshares," and then used that to make predictions.
+
+We found that roughly half of the Mashable articles went viral, but the average number of shares is ~3400 (well beyond the 1400-threshold) which implies that not only do viral articles typically blow past the threshold, but also implies that virality is exponential – an intuitive idea.  A logarithmic transformation to the “shares” variable, then, is a logical way to linearize the relationship between “shares” and the relevant covariates.
+
+Finding which covariates are relevant, however, was messy.  Among the model selection methods we tried were lasso regression, stepwise selection (starting with a basic model), and hand-building models with and without interactions.  The best model turned out to be a hand-built, interaction-free model.  We failed to find any undeniably relevant interactions, and neither the lasso nor stepwise selections seemed to outperform the hand-built model, by R2 or by predictive power, and both cost more in terms of time and intuition, as would a KNN.  (Stepwise returned 59 coefficients!)  In this case, we determined that a simpler model was better and clearer.
+
+```{r include=FALSE, cache=TRUE}
+calc_accuracy <- function(formula, splitnum, df) {
+  
+  fitlist <- list()
+  
+  for(i in 1:splitnum) {
+    
+    trainind = sample.int(n, ntrain, replace = FALSE)
+    trainset = df[trainind,]
+    testset = df[-trainind,]
+    
+    mash_lm = lm(formula, data = trainset)
+    predshares_lm = exp(predict(mash_lm, newdata = testset))
+    predviral_lm = ifelse(predshares_lm > 1400, 1, 0)
+    
+    viral = testset[which(testset$viral==1),]$viral
+    notviral = testset[which(testset$viral==0),]$viral
+    correctpredviral = ifelse(predviral_lm==1 & testset$viral==1, 1, 0)
+    correctprednotviral = ifelse(predviral_lm==0 & testset$viral==0, 1, 0)
+    wrongpredviral = ifelse(predviral_lm==1 & testset$viral==0, 1, 0)
+    
+    fitlist[[i]] <- 
+      data.frame(accuracy = (sum(correctprednotviral)+sum(correctpredviral))/7929,
+                 nullacc = length(notviral)/7929,
+                 error = 1-((sum(correctprednotviral)+sum(correctpredviral))/7929),
+               truepos = sum(correctpredviral)/length(viral),
+               falsepos = sum(wrongpredviral)/length(notviral)) 
+  }
+  
+  data.table::rbindlist(fitlist, idcol = T)
+  
+}
+
+linreg = calc_accuracy(logshares ~ n_tokens_title + n_tokens_content + num_self_hrefs + num_hrefs + average_token_length + num_imgs + num_videos + num_keywords + is_weekend + global_rate_positive_words + global_rate_negative_words + title_subjectivity + abs_title_sentiment_polarity + self_reference_avg_sharess + data_channel_is_world + data_channel_is_bus + data_channel_is_entertainment + data_channel_is_tech + data_channel_is_socmed + avg_positive_polarity + avg_negative_polarity,
+                       splitnum = 100, df = online_news)
+```
+
+## Results
+Overall Error Rate:
+``` {r echo = FALSE}
+mean(linreg$error)
+```
+True Positive Rate:
+``` {r echo = FALSE}
+mean(linreg$truepos)
+```
+False Positive Rate:
+``` {r echo = FALSE}
+mean(linreg$falsepos)
+```
+Accuracy of the model that guesses "not viral" for everything on the test set:
+``` {r echo = FALSE}
+mean(linreg$nullacc)
+```
+Accuracy of this model:
+``` {r echo = FALSE}
+mean(linreg$accuracy)
+```
+
+# Threshold-Then-Regress
+
+Here we use the same covariates (for a more direct comparison with the regress-first outcomes) with a logit regression model.  For the outcome variable, we defined the binary "viral" as 1 if an article exceeded 1400 shares and 0 if it did not.
+
+``` {r include = FALSE, cache = TRUE}
+logit_accuracy <- function(formula, splitnum, df) {
+  
+  fitlist <- list()
+  
+  for(i in 1:splitnum) {
+    
+    trainind = sample.int(n, ntrain, replace = FALSE)
+    trainset = df[trainind,]
+    testset = df[-trainind,]
+    
+    mash_logit = glm(formula, data = trainset, family = binomial)
+    probviral_logit = predict(mash_logit, newdata = testset, type = "response")
+    predviral_logit = ifelse(probviral_logit > 0.5, 1, 0)
+    
+    viral = testset[which(testset$viral==1),]$viral
+    notviral = testset[which(testset$viral==0),]$viral
+    correctpredviral = ifelse(predviral_logit==1 & testset$viral==1, 1, 0)
+    correctprednotviral = ifelse(predviral_logit==0 & testset$viral==0, 1, 0)
+    wrongpredviral = ifelse(predviral_logit==1 & testset$viral==0, 1, 0)
+    
+    fitlist[[i]] <- 
+      data.frame(accuracy = (sum(correctprednotviral)+sum(correctpredviral))/7929,
+                 nullacc = length(notviral)/7929,
+                 error = 1-((sum(correctprednotviral)+sum(correctpredviral))/7929),
+                 truepos = sum(correctpredviral)/length(viral),
+                 falsepos = sum(wrongpredviral)/length(notviral)) 
+  }
+  
+  data.table::rbindlist(fitlist, idcol = T)
+  
+}
+
+logreg = logit_accuracy(viral ~ n_tokens_title + n_tokens_content + num_self_hrefs + num_hrefs + average_token_length + num_imgs + num_videos + num_keywords + is_weekend + global_rate_positive_words + global_rate_negative_words + title_subjectivity + abs_title_sentiment_polarity + self_reference_avg_sharess + data_channel_is_world + data_channel_is_bus + data_channel_is_entertainment + data_channel_is_tech + data_channel_is_socmed + avg_positive_polarity + avg_negative_polarity, splitnum = 100, df = online_news)
+```
+
+## Results
+Overall Error Rate:
+``` {r echo = FALSE}
+mean(logreg$error)
+```
+True Positive Rate:
+``` {r echo = FALSE}
+mean(logreg$truepos)
+```
+False Positive Rate:
+``` {r echo = FALSE}
+mean(logreg$falsepos)
+```
+Accuracy of the model that guesses "not viral" for everything on the test set:
+``` {r echo = FALSE}
+mean(logreg$nullacc)
+```
+Accuracy of this model:
+``` {r echo = FALSE}
+mean(logreg$accuracy)
+```
+
+# Conclusion
+
+We can compare sample confusion matrices to illustrate the difference between the two prediction methods as well.
+``` {r include = FALSE}
+trainind = sample.int(n, ntrain, replace = FALSE)
+trainset = online_news[trainind,]
+testset = online_news[-trainind,]
+```
+### Regress-Then_Threshold Matrix:
+``` {r echo = FALSE, cache = TRUE}
+mash_lm = lm(logshares ~ n_tokens_title + n_tokens_content + num_self_hrefs + num_hrefs + average_token_length +
+               num_imgs + num_videos + num_keywords + is_weekend + global_rate_positive_words + global_rate_negative_words +
+               title_subjectivity + abs_title_sentiment_polarity + self_reference_avg_sharess + data_channel_is_world +
+               data_channel_is_bus + data_channel_is_entertainment + data_channel_is_tech + data_channel_is_socmed +
+               avg_positive_polarity + avg_negative_polarity, data = trainset)
+predshares_lm = exp(predict(mash_lm, newdata = testset))
+predviral_lm = ifelse(predshares_lm > 1400, 1, 0)
+confusion_out_lm = table(viral = testset$viral, viral_pred = predviral_lm)
+confusion_out_lm
+```
+The error rate of this matrix is:
+``` {r echo = FALSE}
+error_lm = 1-(sum(diag(confusion_out_lm))/sum(confusion_out_lm))
+error_lm
+```
+### Threshold-Then-Regress Matrix:
+``` {r echo = FALSE, cache = TRUE}
+  # Threshold-then-regress matrix
+
+mash_logit = glm(viral ~ n_tokens_title + n_tokens_content + num_self_hrefs + num_hrefs + average_token_length +
+               num_imgs + num_videos + num_keywords + is_weekend + global_rate_positive_words + global_rate_negative_words +
+               title_subjectivity + abs_title_sentiment_polarity + self_reference_avg_sharess + data_channel_is_world +
+               data_channel_is_bus + data_channel_is_entertainment + data_channel_is_tech + data_channel_is_socmed +
+               avg_positive_polarity + avg_negative_polarity, data = trainset, family = binomial)
+probviral_logit = predict(mash_logit, newdata = testset, type = "response")
+predviral_logit = ifelse(probviral_logit > 0.5, 1, 0)
+confusion_out_logit = table(viral = testset$viral, viral_pred = predviral_logit)
+confusion_out_logit
+```
+The error rate of this matrix is:
+``` {r echo = FALSE}
+error_logit = 1-(sum(diag(confusion_out_logit))/sum(confusion_out_logit))
+error_logit
+```
+The threshold-then-regress approach consistently outperforms the regress-then-threshold approach.  In terms of overall predictive accuracy, the “logshares” regression improves about 8 percentage points and the binary “viral” logit regression about 12 percentage points over the baseline model (i.e. simply choosing the most common result for every result, in this case “not viral”).  Both the true-positive and false-positive rates (predicting virality when it is actually viral and when it is not) are higher for the “logshares” regression, suggesting a higher degree of “optimism” than in the logit model.  We think that since the number of article shares is not inherently linear, predicting the number of shares with a linear regression is tougher than predicting whether it exceeds the viral-threshold.  Transforming the variable logarithmically helps but doesn’t answer for all of a linear model’s bias.  Since the mean number of shares is much higher than the viral-threshold also, the model could bias towards optimistic predictions.  Pegging the virality to a logistic distribution neutralizes the more extreme traits that viral articles carry independently of the covariates (e.g. network effects), so a logit regression is better able to utilize the covariates to make predictions about what we actually want to know, which is simply the likelihood of virality, not the degree of virality.
