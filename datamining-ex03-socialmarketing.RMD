@@ -1,0 +1,179 @@
+---
+title: "Social Marketing - Identifying Market Segments"
+output: github_document
+---
+
+**Background:**
+Defined market segments are fundamental for guiding a marketing strategy and as such, we valued clarity, ease of communication, and relevance throughout this project.  Market segmentation, in our view, is not just a categorization scheme, but a basis for action.
+
+While we tried agglomerative hierarchical clustering (since we suspected that tags like “chatter” might be an umbrella with several distinct/relevant sub-characteristics) and principal components analysis (PCA), in order to distill any correlations, we thought that K-means++ conveyed the clearest insights.  By use of K-means++, we are able to discern and characterize 6 distinct market segments that may help inform the marketing strategy of NutrientH20.
+
+```{r include=FALSE, cache=TRUE}
+library(LICORS)
+library(mosaic)
+library(cluster)
+
+social_marketing <- read.csv("~/University of Texas/Data Mining & Statistical Inference/Data/social_marketing.csv")
+
+# delete the untrustworthy records
+
+social_marketing <- social_marketing[!(social_marketing$adult > 0 & social_marketing$spam > 0),]
+social_marketing$total <- rowSums(social_marketing[-1])  # totaling number of tags
+social_marketing$pctadult <- (social_marketing$adult/social_marketing$total)  # excessive amount of adult posts
+social_marketing <- social_marketing[-(which(social_marketing$pctadult >= .25)),]
+
+# delete irrelevant features
+
+social_marketing <- social_marketing[,-c(36,39)]  # removed spam and pctadult columns
+```
+
+## Pre-Processing
+
+To prune the dataset, we:
+
+* Deleted records that carried at least one “adult” and one “spam” label, judging their credibility to be in question while not significantly slashing the size of the dataset
+* Deleted records whose labels were more than 25% “adult,” for both credibility and usefulness concerns (our thinking being that excessively adult-oriented users are unlikely to inform any useful marketing strategy for NutrientH20)
+* Deleted the “spam” feature, since only three records left had a single spam label
+
+Overall, we think these steps made a more trustworthy and useful dataset.
+
+
+```{r include=FALSE, cache=TRUE}
+# center and scale
+
+sm_scaled <- scale(social_marketing[,-c(1,37)], center = TRUE, scale = TRUE)
+mu = attr(sm_scaled, "scaled:center")
+sigma = attr(sm_scaled, "scaled:scale")
+
+
+# K-means++
+
+set.seed(6)
+kpp = kmeanspp(sm_scaled, 6, nstart = 25)
+
+c1 <- data.frame(social_marketing[(which(kpp$cluster == 1)),])
+c2 <- data.frame(social_marketing[(which(kpp$cluster == 2)),])
+c3 <- data.frame(social_marketing[(which(kpp$cluster == 3)),])
+c4 <- data.frame(social_marketing[(which(kpp$cluster == 4)),])
+c5 <- data.frame(social_marketing[(which(kpp$cluster == 5)),])
+c6 <- data.frame(social_marketing[(which(kpp$cluster == 6)),])
+
+sum1 <- data.frame(cbind(colSums(c1[,-c(1,37)]),
+                         kpp$center[1,]*sigma + mu,
+                         colSums(c2[,-c(1,37)]),
+                         kpp$center[2,]*sigma + mu,
+                         colSums(c3[,-c(1,37)]),
+                         kpp$center[3,]*sigma + mu,
+                         colSums(c4[,-c(1,37)]),
+                         kpp$center[4,]*sigma + mu,
+                         colSums(c5[,-c(1,37)]),
+                         kpp$center[5,]*sigma + mu,
+                         colSums(c6[,-c(1,37)]),
+                         kpp$center[6,]*sigma + mu))
+
+colnames(sum1)[c(1,3,5,7,9,11)] <- "Label Count"
+colnames(sum1)[c(2,4,6,8,10,12)] <- "Center Value"
+
+t1 <- head(sum1[(order(sum1[,1], decreasing = TRUE)), 1:2, drop = FALSE], n=8)
+t2 <- head(sum1[(order(sum1[,3], decreasing = TRUE)), 3:4, drop = FALSE], n=8)
+t3 <- head(sum1[(order(sum1[,5], decreasing = TRUE)), 5:6, drop = FALSE], n=8)
+t4 <- head(sum1[(order(sum1[,7], decreasing = TRUE)), 7:8, drop = FALSE], n=8)
+t5 <- head(sum1[(order(sum1[,9], decreasing = TRUE)), 9:10, drop = FALSE], n=8)
+t6 <- head(sum1[(order(sum1[,11], decreasing = TRUE)), 11:12, drop = FALSE], n=8)
+```
+
+## Market Segments (K-Means++)
+
+**Choosing K:**  Our first task was to choose a reasonable number of clusters.  In pursuit of an optimal number, we employed an elbow plot, the CH-Index, and the gap statistic, all to no avail, so we decided to just pick one.  After some test runs, we settled on 6 clusters that were most identifiable.
+
+Each cluster is listed below, ordered by size from smallest to largest, with their eight most common labels and a short description (it should be noted that "chatter" and "photo-sharing" are in each cluster's top 8):
+
+#### The Youthful:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c3)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t3 # young
+```
+This cluster - the smallest - looks like a young group: concerned with college, with time to spend on gaming, and energy to spend on playing sports.  At risk of sounding old-fashioned, these traits also appear to be those traditionally associated with males.
+
+#### The Aesthetic:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c1)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t1 # aesthetic
+```
+This group must be the best-looking: it has very photogenic interests, and exploits as much, as evidenced by the high ranking of "photo-sharing."  Their particular affinity for cooking could explain their interest in NutrientH20.  Again risking sounding old-fashioned, these appear to be traditionally female interests.
+
+#### The Worldly:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c6)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t6 # worldly
+```
+Dominated by politics, travel, and news, this group is probably full of subscribers to the New York Times and #wanderlust hashtags.
+
+#### The Domestic:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c5)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t5 # domestic/conservative
+```
+This seems to be a fairly conservative group of people, focused much more on close-to-home issues.  Hilariously, as much as they post about family, parenting, and religion, their sports team is second-to-none.
+
+#### The Healthy:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c4)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t4 # healthy
+```
+Not surprisingly, followers of NutrientH20 tend to post about health/nutrition, fitness, cooking, and the great outdoors.  This is the largest cluster of users that don't belong to...
+
+#### Everybody Else:
+
+Number of users:
+```{r echo=FALSE}
+nrow(c2)
+```
+Top 8 labels:
+```{r echo=FALSE}
+t2 # everyone else
+```
+Finally, this cluster - by far the largest - looks like somewhat of a hodgepodge of characteristics, dominated by generic traits like "chatter" and "photo sharing."  It admittedly seems like a cop-out to call them "everybody else" when we're trying to identify characteristics; however, this cluster is distinguished by one thing in particular:
+
+## Frequent vs. Infrequent Users
+
+While we don’t have information on how many posts each user posted over the sample week, we can use the number of labels associated with them as a proxy, assuming the number of labels per individual post is fairly invariant across users.  Here is the distribution of labels:
+
+```{r echo=FALSE, cache=TRUE}
+ggplot(data = social_marketing) +
+  geom_bar(mapping = aes(social_marketing$total)) +
+  ggtitle("Label Count") +
+  labs(x = "Number of Labels", y = "Number of Users") +
+  theme(plot.title = element_text(hjust = 0.5, size = 22))
+```
+
+For each cluster, we divided the total number of labels by the number of users to obtain average labels per user.  All 5 of our minority clusters average around 60 labels per user – on the higher end of the above distribution.  The sixth and largest cluster averages around 28, which is where we see the largest mass of users in the distribution.  We interpret that to mean that frequent posters are more likely to convey tendencies than less frequent posters (and are more engaged with Twitter itself). K-means++ diligently sorted out the trends it could confidently find from frequent posters and apparently sorted the less frequent posters into their own cluster.
+
+## Conclusion
+
+While it might be initially frustrating that our largest cluster seems to lack actionable distinctions, we think that patterns shown by users who display a high engagement with Twitter are highly valuable, and possibly represent latent behaviors of our less frequent posters.  By targeting the revealed patterns of minority, high-frequency users - whether they are young, fashionable, worldly, domestic, or health-conscious - NutrientH20 may yet increase the engagement of Everybody Else.
